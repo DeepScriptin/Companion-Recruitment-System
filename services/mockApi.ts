@@ -1,9 +1,36 @@
 
-import { Companion, User, UserRole, UserCompanion, CompanionAssignment } from '../types';
+import { Companion, User, UserRole } from '../types';
 import { supabase } from './supabaseClient';
 
 class MockApiService {
   private currentUser: User | null = null;
+
+  // Helper to map DB companion to Frontend interface
+  private mapCompanion(c: any): Companion {
+    return {
+      id: c.id,
+      name: c.name,
+      roleDescription: c.role_description,
+      category: c.category,
+      avatarEmoji: c.avatar_emoji,
+      colorClass: c.color_class,
+      costPoints: c.cost_points,
+      description: c.description,
+      quote: c.quote,
+      difyPromptLink: c.dify_prompt_link,
+      difyApiKey: c.dify_api_key,
+      remarks: c.remarks,
+      isActive: c.is_active,
+      isDeleted: c.is_deleted,
+      createdAt: c.created_at,
+      updatedAt: c.updated_at,
+      stats: {
+        rating: c.stats?.rating || 0,
+        currentSubscribers: c.stats?.current_subscribers || 0,
+        totalSubscribersEver: c.stats?.total_subscribers_ever || 0
+      }
+    };
+  }
 
   async login(email: string, password: string): Promise<User> {
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
@@ -75,7 +102,7 @@ class MockApiService {
     const { data, error } = await query;
     if (error) throw error;
 
-    let companions = data as Companion[];
+    let companions = (data || []).map(this.mapCompanion);
 
     // RBAC filter for Creator
     if (user.role === UserRole.CREATOR) {
@@ -99,35 +126,61 @@ class MockApiService {
       .single();
     
     if (error) return null;
-    return data as Companion;
+    return this.mapCompanion(data);
   }
 
   async createCompanion(data: Partial<Companion>) {
     const user = await this.getCurrentUser();
     if (!user) throw new Error('Not authenticated');
 
+    const dbData = {
+      name: data.name,
+      role_description: data.roleDescription,
+      category: data.category,
+      avatar_emoji: data.avatarEmoji,
+      color_class: data.colorClass,
+      cost_points: data.costPoints,
+      description: data.description,
+      quote: data.quote,
+      dify_prompt_link: data.difyPromptLink,
+      dify_api_key: data.difyApiKey,
+      remarks: data.remarks,
+      is_deleted: false,
+      is_active: data.isActive ?? true,
+      stats: { rating: 0, current_subscribers: 0, total_subscribers_ever: 0 }
+    };
+
     const { data: newComp, error } = await supabase
       .from('companions')
-      .insert([{
-        ...data,
-        is_deleted: false,
-        is_active: true,
-        stats: { rating: 0, current_subscribers: 0, total_subscribers_ever: 0 }
-      }])
+      .insert([dbData])
       .select()
       .single();
 
     if (error) throw error;
-    return newComp;
+    return this.mapCompanion(newComp);
   }
 
   async updateCompanion(id: string, data: Partial<Companion>) {
     const user = await this.getCurrentUser();
     if (!user) throw new Error('Not authenticated');
 
+    const dbData: any = { updated_at: new Date().toISOString() };
+    if (data.name !== undefined) dbData.name = data.name;
+    if (data.roleDescription !== undefined) dbData.role_description = data.roleDescription;
+    if (data.category !== undefined) dbData.category = data.category;
+    if (data.avatarEmoji !== undefined) dbData.avatar_emoji = data.avatarEmoji;
+    if (data.colorClass !== undefined) dbData.color_class = data.colorClass;
+    if (data.costPoints !== undefined) dbData.cost_points = data.costPoints;
+    if (data.description !== undefined) dbData.description = data.description;
+    if (data.quote !== undefined) dbData.quote = data.quote;
+    if (data.difyPromptLink !== undefined) dbData.dify_prompt_link = data.difyPromptLink;
+    if (data.difyApiKey !== undefined) dbData.dify_api_key = data.difyApiKey;
+    if (data.remarks !== undefined) dbData.remarks = data.remarks;
+    if (data.isActive !== undefined) dbData.is_active = data.isActive;
+
     const { error } = await supabase
       .from('companions')
-      .update({ ...data, updated_at: new Date().toISOString() })
+      .update(dbData)
       .eq('id', id);
 
     if (error) throw error;
@@ -164,7 +217,6 @@ class MockApiService {
     if (!companion) throw new Error('Not found');
     if (user.learningPoints < companion.costPoints) throw new Error('Insufficient points');
 
-    // Deduct points locally and in DB
     const newPoints = user.learningPoints - companion.costPoints;
     await supabase.from('profiles').update({ learning_points: newPoints }).eq('id', user.id);
     user.learningPoints = newPoints;
@@ -197,7 +249,10 @@ class MockApiService {
       .eq('is_active', true);
 
     if (error) throw error;
-    return data || [];
+    return (data || []).map(s => ({
+      ...s,
+      companion: this.mapCompanion(s.companion)
+    }));
   }
 
   async getUsersByRole(role: UserRole): Promise<User[]> {
@@ -210,7 +265,7 @@ class MockApiService {
     return (data || []).map(p => ({
       id: p.id,
       username: p.username,
-      email: '', // Supabase profiles usually don't have email unless joined with auth.users
+      email: '', 
       role: p.role as UserRole,
       learningPoints: p.learning_points
     }));
