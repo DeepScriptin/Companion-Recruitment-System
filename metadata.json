@@ -1,0 +1,8 @@
+{
+  "name": "Companion Recruitment System",
+  "description": "A sophisticated AI companion management and recruitment platform featuring a three-tier admin interface (Super Admin, Admin, Creator) and a user-facing bot store.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
