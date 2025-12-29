@@ -1,202 +1,219 @@
 
 import { Companion, User, UserRole, UserCompanion, CompanionAssignment } from '../types';
-import { INITIAL_COMPANIONS } from '../constants';
+import { supabase } from './supabaseClient';
 
 class MockApiService {
-  private companions: Companion[] = [...INITIAL_COMPANIONS];
-  private users: User[] = [
-    { id: 'u1', username: 'Super User', email: 'super@system.com', role: UserRole.SUPER_ADMIN, learningPoints: 5000 },
-    { id: 'u2', username: 'Admin Alex', email: 'admin@system.com', role: UserRole.ADMIN, learningPoints: 1000 },
-    { id: 'u3', username: 'Creator Chris', email: 'chris@creator.com', role: UserRole.CREATOR, learningPoints: 1000 },
-    { id: 'u4', username: 'Student Sam', email: 'sam@student.com', role: UserRole.STUDENT, learningPoints: 2000 }
-  ];
-  private assignments: CompanionAssignment[] = [
-    { id: 'a1', companionId: '1', creatorId: 'u3', assignedBy: 'u1', assignedAt: new Date().toISOString() }
-  ];
-  private subscriptions: UserCompanion[] = [];
-  
-  private currentUserId: string | null = localStorage.getItem('companion_session');
+  private currentUser: User | null = null;
 
-  login(email: string, password: string): User {
-    const user = this.users.find(u => u.email === email);
-    if (!user) throw new Error('User not found');
-    // In a real app, password would be hashed. For demo, we accept any pass if email is correct or hardcoded ones.
-    if (password === 'admin123' || password === 'creator123' || password === 'student123') {
-      this.currentUserId = user.id;
-      localStorage.setItem('companion_session', user.id);
-      return user;
+  async login(email: string, password: string): Promise<User> {
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (authError) throw new Error(authError.message);
+
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', authData.user.id)
+      .single();
+
+    if (profileError) throw new Error(profileError.message);
+
+    this.currentUser = {
+      id: profile.id,
+      username: profile.username,
+      email: authData.user.email!,
+      role: profile.role as UserRole,
+      learningPoints: profile.learning_points,
+    };
+
+    return this.currentUser;
+  }
+
+  async logout() {
+    await supabase.auth.signOut();
+    this.currentUser = null;
+  }
+
+  async getCurrentUser(): Promise<User | null> {
+    if (this.currentUser) return this.currentUser;
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return null;
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', session.user.id)
+      .single();
+
+    if (profile) {
+      this.currentUser = {
+        id: profile.id,
+        username: profile.username,
+        email: session.user.email!,
+        role: profile.role as UserRole,
+        learningPoints: profile.learning_points,
+      };
     }
-    throw new Error('Invalid credentials');
+
+    return this.currentUser;
   }
 
-  logout() {
-    this.currentUserId = null;
-    localStorage.removeItem('companion_session');
-  }
-
-  getCurrentUser(): User | null {
-    if (!this.currentUserId) return null;
-    return this.users.find(u => u.id === this.currentUserId) || null;
-  }
-
-  getUsersByRole(role?: UserRole) {
-    return role ? this.users.filter(u => u.role === role) : this.users;
-  }
-
-  // Companions
-  getCompanions(includeDeleted = false) {
-    const user = this.getCurrentUser();
+  async getCompanions(includeDeleted = false): Promise<Companion[]> {
+    const user = await this.getCurrentUser();
     if (!user) return [];
 
-    let filtered = includeDeleted ? this.companions : this.companions.filter(c => !c.isDeleted);
+    let query = supabase.from('companions').select('*');
     
-    // RBAC logic for listing
-    if (user.role === UserRole.CREATOR) {
-      const assignedIds = this.assignments
-        .filter(a => a.creatorId === user.id)
-        .map(a => a.companionId);
-      return filtered.filter(c => assignedIds.includes(c.id));
+    if (!includeDeleted) {
+      query = query.eq('is_deleted', false);
     }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    let companions = data as Companion[];
+
+    // RBAC filter for Creator
+    if (user.role === UserRole.CREATOR) {
+      const { data: assignments } = await supabase
+        .from('companion_assignments')
+        .select('companion_id')
+        .eq('creator_id', user.id);
+      
+      const assignedIds = assignments?.map(a => a.companion_id) || [];
+      companions = companions.filter(c => assignedIds.includes(c.id));
+    }
+
+    return companions;
+  }
+
+  async getCompanion(id: string): Promise<Companion | null> {
+    const { data, error } = await supabase
+      .from('companions')
+      .select('*')
+      .eq('id', id)
+      .single();
     
-    return filtered;
+    if (error) return null;
+    return data as Companion;
   }
 
-  getCompanion(id: string) {
-    return this.companions.find(c => c.id === id);
-  }
-
-  createCompanion(data: Partial<Companion>) {
-    const user = this.getCurrentUser();
+  async createCompanion(data: Partial<Companion>) {
+    const user = await this.getCurrentUser();
     if (!user) throw new Error('Not authenticated');
 
-    const newComp: Companion = {
-      ...data as any,
-      id: Math.random().toString(36).substr(2, 9),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      stats: { rating: 0, currentSubscribers: 0, totalSubscribersEver: 0 },
-      isDeleted: false,
-      isActive: true
-    };
-    this.companions.push(newComp);
+    const { data: newComp, error } = await supabase
+      .from('companions')
+      .insert([{
+        ...data,
+        is_deleted: false,
+        is_active: true,
+        stats: { rating: 0, current_subscribers: 0, total_subscribers_ever: 0 }
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
     return newComp;
   }
 
-  updateCompanion(id: string, data: Partial<Companion>) {
-    const user = this.getCurrentUser();
+  async updateCompanion(id: string, data: Partial<Companion>) {
+    const user = await this.getCurrentUser();
     if (!user) throw new Error('Not authenticated');
 
-    const index = this.companions.findIndex(c => c.id === id);
-    if (index === -1) throw new Error('Companion not found');
-    
-    // Authorization check
-    if (user.role === UserRole.CREATOR) {
-      const isAssigned = this.assignments.some(a => a.companionId === id && a.creatorId === user.id);
-      if (!isAssigned) throw new Error('Access denied');
-    }
+    const { error } = await supabase
+      .from('companions')
+      .update({ ...data, updated_at: new Date().toISOString() })
+      .eq('id', id);
 
-    this.companions[index] = { ...this.companions[index], ...data, updatedAt: new Date().toISOString() };
-    return this.companions[index];
+    if (error) throw error;
   }
 
-  deleteCompanion(id: string) {
-    const user = this.getCurrentUser();
+  async deleteCompanion(id: string) {
+    const user = await this.getCurrentUser();
     if (user?.role !== UserRole.SUPER_ADMIN) throw new Error('Only Super Admin can delete');
     
-    const index = this.companions.findIndex(c => c.id === id);
-    if (index === -1) throw new Error('Companion not found');
-    
-    const activeSubscribers = this.subscriptions.filter(s => s.companionId === id && s.isActive).length;
-    if (activeSubscribers > 0) {
-      return { success: false, warning: `Cannot delete: ${activeSubscribers} active subscriber(s).` };
+    const { data: subs } = await supabase
+      .from('user_companions')
+      .select('id')
+      .eq('companion_id', id)
+      .eq('is_active', true);
+
+    if (subs && subs.length > 0) {
+      return { success: false, warning: `Cannot delete: ${subs.length} active subscriber(s).` };
     }
 
-    this.companions[index].isDeleted = true;
+    const { error } = await supabase
+      .from('companions')
+      .update({ is_deleted: true, is_active: false })
+      .eq('id', id);
+
+    if (error) throw error;
     return { success: true };
   }
 
-  // Assignments
-  getAssignments() {
-    return this.assignments;
-  }
-
-  assignCompanion(companionId: string, creatorId: string) {
-    const user = this.getCurrentUser();
-    if (user?.role !== UserRole.SUPER_ADMIN && user?.role !== UserRole.ADMIN) {
-      throw new Error('Access denied');
-    }
-    const exists = this.assignments.find(a => a.companionId === companionId && a.creatorId === creatorId);
-    if (exists) return exists;
-
-    const newAssignment: CompanionAssignment = {
-      id: Math.random().toString(36).substr(2, 9),
-      companionId,
-      creatorId,
-      assignedBy: user.id,
-      assignedAt: new Date().toISOString()
-    };
-    this.assignments.push(newAssignment);
-    return newAssignment;
-  }
-
-  // Subscriptions
-  recruitCompanion(companionId: string) {
-    const user = this.getCurrentUser();
+  async recruitCompanion(companionId: string) {
+    const user = await this.getCurrentUser();
     if (!user) throw new Error('Not authenticated');
 
-    const companion = this.companions.find(c => c.id === companionId);
+    const companion = await this.getCompanion(companionId);
     if (!companion) throw new Error('Not found');
     if (user.learningPoints < companion.costPoints) throw new Error('Insufficient points');
-    
-    const existing = this.subscriptions.find(s => s.companionId === companionId && s.userId === user.id);
-    if (existing?.isActive) throw new Error('Already recruited');
 
-    user.learningPoints -= companion.costPoints;
-    
-    if (existing) {
-      existing.isActive = true;
-    } else {
-      this.subscriptions.push({
-        id: Math.random().toString(36).substr(2, 9),
-        userId: user.id,
-        companionId,
-        recruitedAt: new Date().toISOString(),
-        isActive: true,
-        totalMessages: 0
-      });
-    }
+    // Deduct points locally and in DB
+    const newPoints = user.learningPoints - companion.costPoints;
+    await supabase.from('profiles').update({ learning_points: newPoints }).eq('id', user.id);
+    user.learningPoints = newPoints;
 
-    // Update stats
-    companion.stats.currentSubscribers++;
-    companion.stats.totalSubscribersEver++;
+    const { error } = await supabase
+      .from('user_companions')
+      .upsert({
+        user_id: user.id,
+        companion_id: companionId,
+        is_active: true,
+        recruited_at: new Date().toISOString()
+      }, { onConflict: 'user_id,companion_id' });
+
+    if (error) throw error;
     
     return { success: true, pointsLeft: user.learningPoints };
   }
 
-  unsubscribe(companionId: string) {
-    const user = this.getCurrentUser();
-    if (!user) throw new Error('Not authenticated');
-
-    const sub = this.subscriptions.find(s => s.companionId === companionId && s.userId === user.id && s.isActive);
-    if (!sub) throw new Error('No active subscription found');
-    
-    sub.isActive = false;
-    const companion = this.companions.find(c => c.id === companionId);
-    if (companion) companion.stats.currentSubscribers--;
-    
-    return { success: true };
-  }
-
-  getMySubscriptions() {
-    const user = this.getCurrentUser();
+  async getMySubscriptions(): Promise<any[]> {
+    const user = await this.getCurrentUser();
     if (!user) return [];
 
-    return this.subscriptions
-      .filter(s => s.userId === user.id && s.isActive)
-      .map(s => {
-        const comp = this.companions.find(c => c.id === s.companionId);
-        return { ...s, companion: comp };
-      });
+    const { data, error } = await supabase
+      .from('user_companions')
+      .select(`
+        *,
+        companion:companions (*)
+      `)
+      .eq('user_id', user.id)
+      .eq('is_active', true);
+
+    if (error) throw error;
+    return data || [];
+  }
+
+  async getUsersByRole(role: UserRole): Promise<User[]> {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('role', role);
+
+    if (error) throw error;
+    return (data || []).map(p => ({
+      id: p.id,
+      username: p.username,
+      email: '', // Supabase profiles usually don't have email unless joined with auth.users
+      role: p.role as UserRole,
+      learningPoints: p.learning_points
+    }));
   }
 }
 

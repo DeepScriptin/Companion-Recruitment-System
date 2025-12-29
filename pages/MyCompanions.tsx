@@ -11,8 +11,10 @@ const MyCompanions: React.FC = () => {
     loadData();
   }, []);
 
-  const loadData = () => {
-    setSubs(mockApi.getMySubscriptions());
+  // Fix: loadData must await the asynchronous getMySubscriptions call
+  const loadData = async () => {
+    const data = await mockApi.getMySubscriptions();
+    setSubs(data);
   };
 
   return (

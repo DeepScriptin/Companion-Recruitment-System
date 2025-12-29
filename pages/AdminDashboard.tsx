@@ -10,7 +10,8 @@ const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'companions' | 'creators' | 'assignments'>('companions');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const currentUser = mockApi.getCurrentUser();
+  // Fix: currentUser must be managed as state because getCurrentUser is asynchronous
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -28,12 +29,17 @@ const AdminDashboard: React.FC = () => {
   });
 
   useEffect(() => {
+    // Fix: Await the current user profile on mount
+    mockApi.getCurrentUser().then(setCurrentUser);
     loadData();
   }, []);
 
-  const loadData = () => {
-    setCompanions(mockApi.getCompanions(true));
-    setCreators(mockApi.getUsersByRole(UserRole.CREATOR));
+  // Fix: loadData must await async mockApi calls
+  const loadData = async () => {
+    const comps = await mockApi.getCompanions(true);
+    setCompanions(comps);
+    const crs = await mockApi.getUsersByRole(UserRole.CREATOR);
+    setCreators(crs);
   };
 
   const resetForm = () => {
@@ -73,12 +79,13 @@ const AdminDashboard: React.FC = () => {
     setIsFormOpen(true);
   };
 
-  const handleSave = () => {
+  // Fix: handleSave must be asynchronous and await API calls
+  const handleSave = async () => {
     try {
       if (editingId) {
-        mockApi.updateCompanion(editingId, formData);
+        await mockApi.updateCompanion(editingId, formData);
       } else {
-        mockApi.createCompanion(formData);
+        await mockApi.createCompanion(formData);
       }
       setIsFormOpen(false);
       resetForm();
@@ -88,9 +95,10 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const handleDelete = (id: string) => {
+  // Fix: handleDelete must await the asynchronous deleteCompanion call
+  const handleDelete = async (id: string) => {
     if (!window.confirm("Are you sure you want to delete this bot?")) return;
-    const result = mockApi.deleteCompanion(id);
+    const result = await mockApi.deleteCompanion(id);
     if (!result.success) {
       alert(result.warning);
     } else {
@@ -98,8 +106,11 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const canCreate = currentUser.role === UserRole.SUPER_ADMIN || currentUser.role === UserRole.ADMIN;
-  const canDelete = currentUser.role === UserRole.SUPER_ADMIN;
+  // Fix: Guard against null currentUser when calculating permissions
+  const canCreate = currentUser && (currentUser.role === UserRole.SUPER_ADMIN || currentUser.role === UserRole.ADMIN);
+  const canDelete = currentUser && currentUser.role === UserRole.SUPER_ADMIN;
+
+  if (!currentUser) return null;
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">

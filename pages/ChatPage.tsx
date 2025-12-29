@@ -22,17 +22,21 @@ const ChatPage: React.FC = () => {
 
   useEffect(() => {
     if (id) {
-      const comp = mockApi.getCompanion(id);
-      if (comp) {
-        setCompanion(comp);
-        // Initial greeting
-        setMessages([{
-          id: 'welcome',
-          sender: 'bot',
-          text: `Hi there! I'm ${comp.name}. ${comp.quote} How can I help you today?`,
-          timestamp: new Date()
-        }]);
-      }
+      // Fix: getCompanion is asynchronous and returns a Promise
+      const fetchBot = async () => {
+        const comp = await mockApi.getCompanion(id);
+        if (comp) {
+          setCompanion(comp);
+          // Initial greeting
+          setMessages([{
+            id: 'welcome',
+            sender: 'bot',
+            text: `Hi there! I'm ${comp.name}. ${comp.quote} How can I help you today?`,
+            timestamp: new Date()
+          }]);
+        }
+      };
+      fetchBot();
     }
   }, [id]);
 

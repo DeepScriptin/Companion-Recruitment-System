@@ -11,25 +11,23 @@ const LoginPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
     
-    setTimeout(() => {
-      try {
-        const user = mockApi.login(email, password);
-        if (user.role === UserRole.STUDENT) {
-          navigate('/');
-        } else {
-          navigate('/admin');
-        }
-      } catch (err: any) {
-        setError(err.message);
-      } finally {
-        setIsLoading(false);
+    try {
+      const user = await mockApi.login(email, password);
+      if (user.role === UserRole.STUDENT) {
+        navigate('/');
+      } else {
+        navigate('/admin');
       }
-    }, 800);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const demoAccounts = [
@@ -41,7 +39,6 @@ const LoginPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 overflow-hidden relative">
-      {/* Background Decorations */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/20 rounded-full blur-[120px]"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-600/20 rounded-full blur-[120px]"></div>
       
@@ -53,25 +50,11 @@ const LoginPage: React.FC = () => {
           <p className="text-xl text-slate-400 font-medium">
             Recruit world-class AI companions tailored to your academic success.
           </p>
-          <div className="flex gap-4">
-            <div className="p-4 bg-white/5 border border-white/10 rounded-3xl backdrop-blur-md">
-              <p className="text-2xl font-black text-white">4.9/5</p>
-              <p className="text-xs text-slate-500 uppercase font-black tracking-widest">Bot Rating</p>
-            </div>
-            <div className="p-4 bg-white/5 border border-white/10 rounded-3xl backdrop-blur-md">
-              <p className="text-2xl font-black text-white">2k+</p>
-              <p className="text-xs text-slate-500 uppercase font-black tracking-widest">Active Learners</p>
-            </div>
-          </div>
         </div>
 
         <div className="bg-white rounded-[48px] p-10 shadow-2xl relative">
-          <div className="absolute -top-12 -right-12 w-24 h-24 bg-blue-600 rounded-[32px] rotate-12 flex items-center justify-center text-4xl shadow-2xl animate-bounce">
-            🤖
-          </div>
-          
           <h2 className="text-3xl font-black text-slate-800 mb-2">Welcome Back</h2>
-          <p className="text-slate-500 font-bold mb-8">Sign in to manage your companions</p>
+          <p className="text-slate-500 font-bold mb-8">Sign in with Supabase credentials</p>
 
           <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-2">
@@ -80,7 +63,6 @@ const LoginPage: React.FC = () => {
                 type="email"
                 required
                 className="w-full p-4 bg-slate-50 border-none rounded-2xl font-bold focus:ring-2 focus:ring-blue-500 transition-all"
-                placeholder="email@example.com"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
               />
@@ -91,7 +73,6 @@ const LoginPage: React.FC = () => {
                 type="password"
                 required
                 className="w-full p-4 bg-slate-50 border-none rounded-2xl font-bold focus:ring-2 focus:ring-blue-500 transition-all"
-                placeholder="••••••••"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
               />
@@ -107,21 +88,14 @@ const LoginPage: React.FC = () => {
             <button 
               type="submit"
               disabled={isLoading}
-              className="w-full bg-blue-600 text-white py-4 rounded-3xl font-black text-lg shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all flex items-center justify-center gap-3"
+              className="w-full bg-blue-600 text-white py-4 rounded-3xl font-black text-lg shadow-xl hover:bg-blue-700 transition-all flex items-center justify-center gap-3"
             >
-              {isLoading ? (
-                <>
-                  <i className="fas fa-spinner fa-spin"></i>
-                  Authenticating...
-                </>
-              ) : (
-                'Sign In'
-              )}
+              {isLoading ? 'Authenticating...' : 'Sign In'}
             </button>
           </form>
 
           <div className="mt-10 pt-8 border-t border-slate-100">
-             <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-4">Demo Credentials</p>
+             <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-4">Demo Logins</p>
              <div className="grid grid-cols-2 gap-3">
                 {demoAccounts.map(acc => (
                   <button

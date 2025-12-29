@@ -5,7 +5,8 @@ export class GeminiService {
   private ai: GoogleGenAI;
 
   constructor() {
-    this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+    // Always use process.env.API_KEY directly for initialization
+    this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   }
 
   async chat(companionName: string, roleDescription: string, message: string) {
